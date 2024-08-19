@@ -99,8 +99,7 @@ from lib import NVSMIGPUStatSustainer
 
 
 def test():
-    sustainer = NVSMIGPUStatSustainer()
-    sustainer.main()
+    NVSMIGPUStatSustainer().main()
 
 
 if __name__ == "__main__":

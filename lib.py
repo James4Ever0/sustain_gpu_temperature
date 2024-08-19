@@ -24,9 +24,9 @@ EXEC_TIMEOUT = 5
 
 class AbstractStatSustainer(ABC):
     hardware_name = "Hardware"
+    run_forever:bool
 
-    def __init__(self, run_forever: bool, target_temp=TARGET_TEMP):
-        self.run_forever = run_forever
+    def __init__(self, target_temp=TARGET_TEMP):
         self.target_temp = target_temp
 
     def mainloop(self):
@@ -69,15 +69,16 @@ class AbstractStatSustainer(ABC):
 
 class CPUStatSustainer(AbstractStatSustainer):
     hardware_name = "CPU"
+    run_forever=True
 
 
 class NVIDIAGPUStatSustainer(AbstractStatSustainer):
     hardware_name = "NVIDIA GPU"
-
+    run_forever=False
     def __init__(
         self, target_temp=TARGET_TEMP, max_power_limit_ratio=MAX_POWER_LIMIT_RATIO
     ):
-        super().__init__(run_forever=False, target_temp=target_temp)
+        super().__init__(target_temp=target_temp)
         self.max_power_limit_ratio = max_power_limit_ratio
 
 
@@ -216,7 +217,23 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
 
 class ROCMSMIGPUStatSustainer(AbstractStatSustainer):
     hardware_name = "AMD GPU"
-
+    run_forever=True
 
 class HardwareStatSustainer:
-    ...
+    def __init__(self):
+        self.sustainers: list[AbstractStatSustainer] = [CPUStatSustainer()]
+        self.add_gpu_sustainers()
+    def add_gpu_sustainers(self):
+        # must have cpu, so we check for nvidia gpu and amd gpu
+        if self.has_nvidia_gpu():
+            self.sustainers.append(NVSMIGPUStatSustainer())
+        if self.has_amd_gpu():
+            self.sustainers.append(ROCMSMIGPUStatSustainer())
+    @staticmethod
+    def has_nvidia_gpu() -> bool:
+        ...
+    @staticmethod
+    def has_amd_gpu() -> bool:...
+    def main(self):
+        ...
+        

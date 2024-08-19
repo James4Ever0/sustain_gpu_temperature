@@ -69,8 +69,7 @@ from lib import NVMLGPUStatSustainer
 
 
 def test():
-    sustainer = NVMLGPUStatSustainer()
-    sustainer.main()
+    NVMLGPUStatSustainer().main()
 
 
 if __name__ == "__main__":

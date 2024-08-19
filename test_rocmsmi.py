@@ -1,4 +1,4 @@
-# from lib import ROCMSMIGPUStatSustainer
+from lib import ROCMSMIGPUStatSustainer
 
 # for tuning this stuff we need to run gpu benchmark over each gpu, 100% util
 
@@ -11,3 +11,9 @@
 # output json: --json
 
 # ref: https://github.com/pr0d1r2/linux-systemd-amdgpu-adaptive-thermal-limiter
+
+def test():
+    ROCMSMIGPUStatSustainer().main()
+
+if __name__ == "__main__":
+    test()
