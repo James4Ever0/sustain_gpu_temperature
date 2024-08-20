@@ -1,6 +1,7 @@
 import argparse
 from .lib import HardwareStatSustainer
-
+import sys
+import traceback
 
 def parse_args():
     # Create the parser
@@ -43,8 +44,27 @@ def call_sustainer(target: str):
         kwargs["cpu"] = False
     HardwareStatSustainer(**kwargs).main()
 
+def github_info_excepthook(exctype, value, tb):
+    info = """
+Encountered issue? Stay in touch with us!
+
+Submit new issue: https://github.com/james4ever0/sustain_gpu_temperature/issues/new
+
+You are more than welcomed to submit a pull request instead!
+"""
+    traceback_details = '\n'.join(traceback.extract_tb(tb).format())
+
+    error_msg = "An exception has been raised outside of a try/except!!!\n" \
+                f"Type: {exctype}\n" \
+                f"Value: {value}\n" \
+                f"Traceback:\n{traceback_details}{info}"
+    print(error_msg)    
+
+def set_excepthook():
+    sys.excepthook = github_info_excepthook
 
 def main():
+    set_excepthook()
     cli_args = parse_args()
     target = cli_args.target
     call_sustainer(target)

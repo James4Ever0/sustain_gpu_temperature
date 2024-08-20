@@ -2,9 +2,9 @@ from setuptools import setup
 
 setup(
     name="sustainer",
-    version="0.0.1",
+    version="0.0.3",
     packages=["sustainer"],
-    description="Visualize ignored files and directories by rules.",
+    description="Keep GPU and CPU temperatures within given limit.",
     url="https://github.com/james4ever0/sustain_gpu_temperature",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
