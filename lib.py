@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import os
 import pynvml
 import traceback
-from typing import Optional, Union
+from typing import Optional, Union,Callable
 import subprocess
 import xmltodict
 import shutil
@@ -17,12 +17,16 @@ def is_root():
     ret = os.geteuid() == 0
     return ret
 
+def start_as_daemon_thread(func:Callable):
+    thread = threading.Thread(target=func, daemon=True)
+    thread.start()
 
 # for linux only.
 # TODO: control CPU temperature under 65 celsius
 
 TARGET_TEMP = 65
 MAX_POWER_LIMIT_RATIO = 0.8
+MAX_FREQ_RATIO = 0.8
 
 NVIDIA_SMI = "nvidia-smi"
 ENCODING = "utf-8"
@@ -102,9 +106,10 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
     run_forever = True
     required_binaries = ["sensors", "cpufreq-info", "cpufreq-set"]
 
-    def __init__(self, relax_time: Optional[int] = None):
+    def __init__(self, relax_time: Optional[int] = None, max_freq_ratio=MAX_FREQ_RATIO):
         self.logger_init()
         super().__init__()
+        self.max_freq_ratio = max_freq_ratio
         self.relax_time, self.crit_temp = self.getArguments(
             relax_time, self.target_temp
         )
@@ -183,7 +188,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
     @staticmethod
     def getArguments(time: Optional[int], crit_temp: Optional[int]):
         if time is None:
-            relaxtime = 30  # time in seconds
+            relaxtime = 1  # time in seconds
         else:
             relaxtime = int(time)
         if crit_temp is None:
@@ -288,13 +293,15 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
             raise Exception("Unable to get CPU frequency for unknown hardware")
         else:
             freq = subprocess.run("cpufreq-info -p", shell=True, stdout=subprocess.PIPE)
+            hwfreq = subprocess.run("cpufreq-info -l", shell=True, stdout=subprocess.PIPE)
+            assert hwfreq.returncode == 0, 'failed to get hardware frequency limit'
             if freq.returncode != 0:
                 logging.warning(
                     "cpufreq-info gives error, cpufrequtils package installed?"
                 )
                 return (0, 0, 0)
             else:
-                return tuple(freq.stdout.decode("utf-8").strip().lower().split(" "))
+                return tuple([*hwfreq.stdout.decode('utf-8').strip().split(" "), freq.stdout.decode("utf-8").strip().lower().split(" ")[-1]])
 
     @staticmethod
     def setMaxFreq(frequency: int, hardware: int, cores: int):
@@ -366,6 +373,9 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
         logging.debug(f"min max gov: {freq}")
         min_freq = int(freq[0])
         max_freq = int(freq[1])
+        max_freq_limit = int(max_freq*self.max_freq_ratio)
+        init_freq = int((max_freq + min_freq)/2)
+        freq_step = 300*1000
         if freq[2] is not None:
             cur_governor = freq[2]
         govs = self.getCovernors(hardware)
@@ -388,13 +398,18 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
                 if cur_temp > crit_temp:
                     logging.warning("CPU temp too high")
                     logging.info(f"Slowing down for {relax_time} seconds")
+                    init_freq -= freq_step
+                    init_freq = max(init_freq, min_freq)
                     self.setGovernor(hardware, governor_low)
-                    self.setMaxFreq(min_freq, hardware, cores)
+                    self.setMaxFreq(init_freq, hardware, cores)
+                    # self.setMaxFreq(min_freq, hardware, cores)
                     time.sleep(relax_time)
                 else:
+                    init_freq += freq_step
+                    init_freq = min(init_freq, max_freq_limit) 
                     self.setGovernor(hardware, governor_high)
-                    self.setMaxFreq(max_freq, hardware, cores)
-                time.sleep(3)
+                    self.setMaxFreq(init_freq, hardware, cores)
+                time.sleep(1)
         except KeyboardInterrupt:
             logging.warning("Terminating")
         finally:
@@ -583,12 +598,7 @@ class HardwareStatSustainer:
                 print("[*] Exiting because of keyboard interruption")
                 break
 
-    @staticmethod
-    def start_as_daemon_thread(func):
-        thread = threading.Thread(target=func, daemon=True)
-        thread.start()
-
     def main(self):
         for it in self.sustainers:
-            self.start_as_daemon_thread(it)
+            start_as_daemon_thread(it)
         self.idle()
