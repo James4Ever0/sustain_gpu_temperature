@@ -4,16 +4,6 @@ Keep GPU and CPU temperatures within given limit.
 
 With it you no longer have to worry about hardware heating up when running long time tasks, especially for your cheap P106 and P104 GPU cards.
 
-## Supported hardware
-
-CPU: Intel, AMD, ARM
-
-GPU: NVIDIA, AMD
-
-## Supported platform
-
-Linux only currently.
-
 ## Demo
 
 You can use the command line tool `sustainer`:
@@ -39,6 +29,16 @@ pm2 save
 ```
 
 If you want to call it with code, check out the [test files](./tests/).
+
+## Supported hardware
+
+CPU: Intel, AMD, ARM
+
+GPU: NVIDIA, AMD
+
+## Supported platform
+
+Linux only currently.
 
 ## Install
 
