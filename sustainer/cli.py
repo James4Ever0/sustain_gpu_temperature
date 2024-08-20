@@ -46,9 +46,9 @@ def call_sustainer(target: str):
 
 def github_info_excepthook(exctype, value, tb):
     info = """
-Encountered issue? Stay in touch with us!
+Encountered issues? Stay in touch with us!
 
-Submit new issue: https://github.com/james4ever0/sustain_gpu_temperature/issues/new
+Submit a new issue: https://github.com/james4ever0/sustain_gpu_temperature/issues/new
 
 You are more than welcomed to submit a pull request instead!
 """
