@@ -10,6 +10,7 @@ You can use the command line tool `sustainer`:
 
 ```bash
 sustainer run # default target is 'all', so both cpu and gpu stats will be sustained
+python3 -m sustainer run # alternative syntax
 
 # to specify only cpu or gpu as target
 sustainer --target cpu run
