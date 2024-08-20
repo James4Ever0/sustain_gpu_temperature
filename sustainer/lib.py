@@ -18,36 +18,41 @@ def is_root():
     ret = os.geteuid() == 0
     return ret
 
-def repeat_task(func:Optional[Callable] = None, sleep_time:float = 10):
+
+def repeat_task(func: Optional[Callable] = None, sleep_time: float = 10):
     while True:
         try:
             if func is not None:
                 func()
             time.sleep(sleep_time)
         except KeyboardInterrupt:
-            print('[*] Exiting because of keyboard interruption')
+            print("[*] Exiting because of keyboard interruption")
             break
         except:
             traceback.print_exc()
             print("[-] Exception while running task")
             time.sleep(5)
-        
+
 
 def start_as_daemon_thread(func: Callable):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
 
-def get_value_from_environ_with_fallback(name:str, fallback_value):
+
+def get_value_from_environ_with_fallback(name: str, fallback_value):
     ret = os.environ.get(name, fallback_value)
     ret = type(fallback_value)(ret)
     return ret
+
 
 # for linux only.
 # TODO: control CPU temperature under 65 celsius
 
 TARGET_TEMP = get_value_from_environ_with_fallback("TARGET_TEMP", 65)
-MAX_POWER_LIMIT_RATIO = get_value_from_environ_with_fallback("MAX_POWER_LIMIT_RATIO", 0.8)
-MAX_FREQ_RATIO = get_value_from_environ_with_fallback('MAX_FREQ_RATIO', 0.8)
+MAX_POWER_LIMIT_RATIO = get_value_from_environ_with_fallback(
+    "MAX_POWER_LIMIT_RATIO", 0.8
+)
+MAX_FREQ_RATIO = get_value_from_environ_with_fallback("MAX_FREQ_RATIO", 0.8)
 
 NVIDIA_SMI = "nvidia-smi"
 ENCODING = "utf-8"
@@ -378,7 +383,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
     @staticmethod
     def signal_term_handler(self, args):  # type:ignore
         raise KeyboardInterrupt()
-    
+
     def set_signal_handler(self):
         try:
             signal.signal(signal.SIGINT, self.signal_term_handler)
@@ -707,9 +712,12 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
 
 
 class HardwareStatSustainer:
-    def __init__(self):
-        self.sustainers: list[AbstractBaseStatSustainer] = [CPUStatSustainer()]
-        self.add_gpu_sustainers()
+    def __init__(self, cpu=True, gpu=True):
+        self.sustainers: list[AbstractBaseStatSustainer] = []
+        if cpu:
+            self.sustainers.append(CPUStatSustainer())
+        if gpu:
+            self.add_gpu_sustainers()
 
     def add_gpu_sustainers(self):
         # must have cpu, so we check for nvidia gpu and amd gpu

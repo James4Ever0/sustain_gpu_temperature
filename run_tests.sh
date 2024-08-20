@@ -1,0 +1,1 @@
+ls tests | xargs -Iabc timeout 10 python3 tests/abc
