@@ -133,8 +133,8 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
     required_binaries = ["sensors", "cpufreq-info", "cpufreq-set"]
 
     def __init__(self, relax_time: Optional[int] = None, max_freq_ratio=MAX_FREQ_RATIO):
-        self.logger_init()
         super().__init__()
+        self.logger_init()
         self.max_freq_ratio = max_freq_ratio
         self.relax_time, self.crit_temp = self.getArguments(
             relax_time, self.target_temp

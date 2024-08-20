@@ -2,7 +2,7 @@
 
 Keep GPU and CPU temperatures within given limit.
 
-With it you no longer have to worry about hardware heating up when running long time tasks. Temperature will always be within given limits.
+With it you no longer have to worry about hardware heating up when running long time tasks, especially for your cheap P106 and P104 GPU cards.
 
 ## Supported hardware
 

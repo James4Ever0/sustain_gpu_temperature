@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="sustainer",
-    version="1.0.4",
+    version="0.0.1",
     packages=["sustainer"],
     description="Visualize ignored files and directories by rules.",
     url="https://github.com/james4ever0/sustain_gpu_temperature",
