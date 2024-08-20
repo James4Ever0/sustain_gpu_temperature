@@ -27,19 +27,27 @@ def repeat_task(func:Optional[Callable] = None, sleep_time:float = 10):
         except KeyboardInterrupt:
             print('[*] Exiting because of keyboard interruption')
             break
+        except:
+            traceback.print_exc()
+            print("[-] Exception while running task")
+            time.sleep(5)
         
 
 def start_as_daemon_thread(func: Callable):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
 
+def get_value_from_environ_with_fallback(name:str, fallback_value):
+    ret = os.environ.get(name, fallback_value)
+    ret = type(fallback_value)(ret)
+    return ret
 
 # for linux only.
 # TODO: control CPU temperature under 65 celsius
 
-TARGET_TEMP = 65
-MAX_POWER_LIMIT_RATIO = 0.8
-MAX_FREQ_RATIO = 0.8
+TARGET_TEMP = get_value_from_environ_with_fallback("TARGET_TEMP", 65)
+MAX_POWER_LIMIT_RATIO = get_value_from_environ_with_fallback("MAX_POWER_LIMIT_RATIO", 0.8)
+MAX_FREQ_RATIO = get_value_from_environ_with_fallback('MAX_FREQ_RATIO', 0.8)
 
 NVIDIA_SMI = "nvidia-smi"
 ENCODING = "utf-8"
@@ -370,6 +378,13 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
     @staticmethod
     def signal_term_handler(self, args):  # type:ignore
         raise KeyboardInterrupt()
+    
+    def set_signal_handler(self):
+        try:
+            signal.signal(signal.SIGINT, self.signal_term_handler)
+            signal.signal(signal.SIGTERM, self.signal_term_handler)
+        except ValueError:
+            print("[-] Failed to set signal handler for CPUStatSustainer")
 
     def main(self):
         # global version
@@ -405,8 +420,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
             logging.warning("Wait, powersave mode not in governors list?")
             governor_low = "userspace"
         # logging.debug(f'govs received: {govs}')
-        signal.signal(signal.SIGINT, self.signal_term_handler)
-        signal.signal(signal.SIGTERM, self.signal_term_handler)
+        self.set_signal_handler()
         try:
             while True:
                 # cur_temp = getTemp(hardware)
@@ -714,9 +728,8 @@ class HardwareStatSustainer:
 
     def main(self):
         for it in self.sustainers:
-            if it.run_forever:
-                func = it
-            else:
-                func = functools.partial(repeat_task, it)
+            func = it.main
+            if not it.run_forever:
+                func = functools.partial(repeat_task, func)
             start_as_daemon_thread(func)
         repeat_task()
