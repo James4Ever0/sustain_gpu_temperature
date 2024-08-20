@@ -33,7 +33,7 @@ def generate_rocm_cmdline(suffixs:list[str], device_id:Optional[int], export_jso
     cmdline += suffixs
     if export_json:
         cmdline += ['--json']
-    print('[*] Generated cmdline:', cmdline)
+    # print('[*] Generated cmdline:', cmdline)
     return cmdline
 
 def execute_rocm_cmdline(suffixs:list[str], device_id:Optional[int]= None, export_json=True, timeout=EXECUTE_TIMEOUT):
@@ -41,6 +41,8 @@ def execute_rocm_cmdline(suffixs:list[str], device_id:Optional[int]= None, expor
     output = subprocess.check_output(cmdline,timeout=timeout)
     if export_json:
         output = json.loads(output)
+    # print('[*] Output:')
+    # print(output)
     return output
 
 def get_gpu_sclk_min_max_levels(device_id:int):
@@ -53,7 +55,7 @@ def get_gpu_sclk_min_max_levels(device_id:int):
 def get_gpu_current_sclk_level(device_id:int):
     data:dict = execute_rocm_cmdline(['-c'], device_id=device_id)
     level_data = get_first_value_from_dict(data)
-    ret = int(level_data['sclk_clock_level:'])
+    ret = int(level_data['sclk clock level:'])
     return ret
 
 def get_device_indices():
@@ -68,10 +70,10 @@ def get_first_value_from_dict(data:dict):
     return ret
 
 def set_gpu_sclk_level(device_id:int, sclk_level:int):
-    execute_rocm_cmdline(['--setsclk', str(sclk_level)], device_id=device_id)
+    execute_rocm_cmdline(['--setsclk', str(sclk_level)], device_id=device_id, export_json=False)
 
 def set_gpu_as_manual_perf_level(device_id:int):
-    execute_rocm_cmdline(['--setperflevel', 'manual'], device_id=device_id)
+    execute_rocm_cmdline(['--setperflevel', 'manual'], device_id=device_id, export_json=False)
 
 def get_gpu_temperature(device_id:int):
     data:dict= execute_rocm_cmdline(['-t'], device_id=device_id)
@@ -87,22 +89,28 @@ def get_gpu_temperature(device_id:int):
 
 def mainloop():
     for it in get_device_indices():
+        print("[*] Processing GPU #"+str(it))
         set_gpu_as_manual_perf_level(it)
         gpu_temp = get_gpu_temperature(it)
         current_sclk_level = get_gpu_current_sclk_level(it)
+        print("[*] Current SCLK level:", current_sclk_level)
         min_sclk_level, max_sclk_level = get_gpu_sclk_min_max_levels(it)
+        print("[*] GPU temperature:", gpu_temp)
         if gpu_temp > TEMP_LIMIT:
+            print('[*] Temperature too high. Lowering SCLK level')
             new_sclk_level = current_sclk_level -1
             new_sclk_level = max(min_sclk_level, new_sclk_level)
         else:
+            print('[*] Temperature within limit. Rising SCLK level')
             new_sclk_level = current_sclk_level +1
             new_sclk_level = min(max_sclk_level, new_sclk_level)
+        print("[*] New SCLK level:", new_sclk_level)
         set_gpu_sclk_level(it,new_sclk_level)
 
 def main():
     while True:
         mainloop()
-        time.sleep(1)
+        time.sleep(5)
 
 if __name__ == "__main__":
     # test()

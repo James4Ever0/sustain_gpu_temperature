@@ -50,6 +50,7 @@ class AbstractBaseStatSustainer(ABC):
     run_forever: bool
 
     def __init__(self, target_temp=TARGET_TEMP):
+        assert is_root(), "You must be root to execute this script"
         self.target_temp = target_temp
         self.verify_binary_requirements()
 
@@ -78,7 +79,6 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
                 ), f"[-] {self.hardware_name} stat limits verification failed"
 
     def main(self):
-        assert is_root(), "You must be root to execute this script"
         while True:
             try:
                 self.mainloop()
