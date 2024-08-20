@@ -9,23 +9,23 @@ With it you no longer have to worry about hardware heating up when running long 
 You can use the command line tool `sustainer`:
 
 ```bash
-sustainer run # default target is 'all', so both cpu and gpu stats will be sustained
-python3 -m sustainer run # alternative syntax
+sustainer # default target is 'all', so both cpu and gpu stats will be sustained
+python3 -m sustainer # alternative syntax
 
 # to specify only cpu or gpu as target
-sustainer --target cpu run
-sustainer --target gpu run 
+sustainer --target cpu 
+sustainer --target gpu  
 
 # changing default configuration:
-env TARGET_TEMP=60 sustainer run # default: 65
-env MAX_POWER_LIMIT_RATIO=0.7 sustainer run # default: 0.8
-env MAX_FREQ_RATIO=0.7 sustainer run # default: 0.8
+env TARGET_TEMP=60 sustainer # default: 65
+env MAX_POWER_LIMIT_RATIO=0.7 sustainer # default: 0.8
+env MAX_FREQ_RATIO=0.7 sustainer # default: 0.8
 ```
 
 Optionally run with a process manager such as [pm2](https://pm2.keymetrics.io/) to persist as daemon:
 
 ```bash
-pm2 start -n sustainer_daemon sustainer run
+pm2 start -n sustainer_daemon sustainer
 pm2 save
 ```
 
