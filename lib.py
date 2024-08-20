@@ -10,6 +10,7 @@ import shutil
 import sys, time
 import logging, signal
 import json
+import threading
 
 
 def is_root():
@@ -27,8 +28,16 @@ NVIDIA_SMI = "nvidia-smi"
 ENCODING = "utf-8"
 EXEC_TIMEOUT = 5
 
+ROCM_SMI = "rocm-smi"
 
 CPU_TEMP_SENSOR_PREFIXS = ["coretemp-", "cpu_thermal", "k10temp"]
+
+
+def check_binary_in_path(binary_name: str):
+    ret = shutil.which(binary_name) != None
+    if ret:
+        print(f"[+] Binary '{binary_name}' detected")
+    return ret
 
 
 class AbstractBaseStatSustainer(ABC):
@@ -42,7 +51,7 @@ class AbstractBaseStatSustainer(ABC):
 
     def verify_binary_requirements(self):
         for it in self.required_binaries:
-            assert shutil.which(it) != None, f"Binary '{it}' not found in path"
+            assert check_binary_in_path(it), f"Binary '{it}' not found in path"
 
     @abstractmethod
     def main(self):
@@ -559,11 +568,27 @@ class HardwareStatSustainer:
 
     @staticmethod
     def has_nvidia_gpu() -> bool:
-        ...
+        return check_binary_in_path(NVIDIA_SMI)
 
     @staticmethod
     def has_amd_gpu() -> bool:
-        ...
+        return check_binary_in_path(ROCM_SMI)
+
+    @staticmethod
+    def idle():
+        while True:
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                print("[*] Exiting because of keyboard interruption")
+                break
+
+    @staticmethod
+    def start_as_daemon_thread(func):
+        thread = threading.Thread(target=func, daemon=True)
+        thread.start()
 
     def main(self):
-        ...
+        for it in self.sustainers:
+            self.start_as_daemon_thread(it)
+        self.idle()

@@ -12,8 +12,10 @@ from lib import ROCMSMIGPUStatSustainer
 
 # ref: https://github.com/pr0d1r2/linux-systemd-amdgpu-adaptive-thermal-limiter
 
+
 def test():
     ROCMSMIGPUStatSustainer().main()
+
 
 if __name__ == "__main__":
     test()
