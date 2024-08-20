@@ -564,9 +564,10 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         return power_limit_set and temp_limit_set and persistent_mode_set
 
 
-class ROCMSMIGPUStatSustainer(AbstractStatSustainer):
+class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "AMD GPU"
     run_forever = True
+    required_binaries = ['rocm-smi']
 
 
 class HardwareStatSustainer:
