@@ -30,16 +30,6 @@ pm2 save
 
 If you want to call it with code, check out the [test files](./tests/).
 
-## Supported hardware
-
-CPU: Intel, AMD, ARM
-
-GPU: NVIDIA, AMD
-
-## Supported platform
-
-Linux only currently.
-
 ## Install
 
 First, install from PyPI:
@@ -57,6 +47,16 @@ sudo apt install -y cpufrequtils lm-sensors
 For NVIDIA GPU, you need to install related drivers and make sure `nvidia-smi` is in PATH.
 
 For AMD GPU, install ROCm drivers and make sure `rocm-smi` is in PATH.
+
+## Supported hardware
+
+CPU: Intel, AMD, ARM
+
+GPU: NVIDIA, AMD
+
+## Supported platform
+
+Linux only currently.
 
 ## Stargazers
 
