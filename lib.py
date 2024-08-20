@@ -2,10 +2,11 @@ from abc import ABC, abstractmethod
 import os
 import pynvml
 import traceback
-from typing import Optional, Union,Callable
+from typing import Optional, Union, Callable
 import subprocess
 import xmltodict
 import shutil
+import functools
 
 import sys, time
 import logging, signal
@@ -17,9 +18,21 @@ def is_root():
     ret = os.geteuid() == 0
     return ret
 
-def start_as_daemon_thread(func:Callable):
+def repeat_task(func:Optional[Callable] = None, sleep_time:float = 10):
+    while True:
+        try:
+            if func is not None:
+                func()
+            time.sleep(sleep_time)
+        except KeyboardInterrupt:
+            print('[*] Exiting because of keyboard interruption')
+            break
+        
+
+def start_as_daemon_thread(func: Callable):
     thread = threading.Thread(target=func, daemon=True)
     thread.start()
+
 
 # for linux only.
 # TODO: control CPU temperature under 65 celsius
@@ -293,15 +306,22 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
             raise Exception("Unable to get CPU frequency for unknown hardware")
         else:
             freq = subprocess.run("cpufreq-info -p", shell=True, stdout=subprocess.PIPE)
-            hwfreq = subprocess.run("cpufreq-info -l", shell=True, stdout=subprocess.PIPE)
-            assert hwfreq.returncode == 0, 'failed to get hardware frequency limit'
+            hwfreq = subprocess.run(
+                "cpufreq-info -l", shell=True, stdout=subprocess.PIPE
+            )
+            assert hwfreq.returncode == 0, "failed to get hardware frequency limit"
             if freq.returncode != 0:
                 logging.warning(
                     "cpufreq-info gives error, cpufrequtils package installed?"
                 )
                 return (0, 0, 0)
             else:
-                return tuple([*hwfreq.stdout.decode('utf-8').strip().split(" "), freq.stdout.decode("utf-8").strip().lower().split(" ")[-1]])
+                return tuple(
+                    [
+                        *hwfreq.stdout.decode("utf-8").strip().split(" "),
+                        freq.stdout.decode("utf-8").strip().lower().split(" ")[-1],
+                    ]
+                )
 
     @staticmethod
     def setMaxFreq(frequency: int, hardware: int, cores: int):
@@ -373,9 +393,9 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
         logging.debug(f"min max gov: {freq}")
         min_freq = int(freq[0])
         max_freq = int(freq[1])
-        max_freq_limit = int(max_freq*self.max_freq_ratio)
-        init_freq = int((max_freq + min_freq)/2)
-        freq_step = 300*1000
+        max_freq_limit = int(max_freq * self.max_freq_ratio)
+        init_freq = int((max_freq + min_freq) / 2)
+        freq_step = 300 * 1000
         if freq[2] is not None:
             cur_governor = freq[2]
         govs = self.getCovernors(hardware)
@@ -406,7 +426,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
                     time.sleep(relax_time)
                 else:
                     init_freq += freq_step
-                    init_freq = min(init_freq, max_freq_limit) 
+                    init_freq = min(init_freq, max_freq_limit)
                     self.setGovernor(hardware, governor_high)
                     self.setMaxFreq(init_freq, hardware, cores)
                 time.sleep(1)
@@ -567,7 +587,109 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
 class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "AMD GPU"
     run_forever = True
-    required_binaries = ['rocm-smi']
+    required_binaries = ["rocm-smi"]
+
+    @staticmethod
+    def generate_rocm_cmdline(
+        suffixs: list[str], device_id: Optional[int], export_json: bool
+    ):
+        cmdline = ["rocm-smi"]
+        if device_id is not None:
+            cmdline += ["-d", str(device_id)]
+        cmdline += suffixs
+        if export_json:
+            cmdline += ["--json"]
+        # print('[*] Generated cmdline:', cmdline)
+        return cmdline
+
+    def execute_rocm_cmdline(
+        self,
+        suffixs: list[str],
+        device_id: Optional[int] = None,
+        export_json=True,
+        timeout=EXEC_TIMEOUT,
+    ):
+        cmdline = self.generate_rocm_cmdline(
+            suffixs, device_id=device_id, export_json=export_json
+        )
+        output = subprocess.check_output(cmdline, timeout=timeout)
+        if export_json:
+            output = json.loads(output)
+        # print('[*] Output:')
+        # print(output)
+        return output
+
+    def get_gpu_sclk_min_max_levels(self, device_id: int):
+        data: dict = self.execute_rocm_cmdline(["-s"], device_id)
+        level_data = self.get_first_value_from_dict(data)
+        levels = [int(it) for it in level_data.keys()]
+        min_level, max_level = min(levels), max(levels)
+        return min_level, max_level
+
+    def get_gpu_current_sclk_level(self, device_id: int):
+        data: dict = self.execute_rocm_cmdline(["-c"], device_id=device_id)
+        level_data = self.get_first_value_from_dict(data)
+        ret = int(level_data["sclk clock level:"])
+        return ret
+
+    def get_device_indices(self):
+        data: dict = self.execute_rocm_cmdline(["--showtopo"])
+        # count for keys
+        device_count = len(data.keys())
+        ret = list(range(device_count))
+        return ret
+
+    @staticmethod
+    def get_first_value_from_dict(data: dict):
+        ret = list(data.values())[0]
+        return ret
+
+    def set_gpu_sclk_level(self, device_id: int, sclk_level: int):
+        self.execute_rocm_cmdline(
+            ["--setsclk", str(sclk_level)], device_id=device_id, export_json=False
+        )
+
+    def set_gpu_as_manual_perf_level(self, device_id: int):
+        self.execute_rocm_cmdline(
+            ["--setperflevel", "manual"], device_id=device_id, export_json=False
+        )
+
+    def get_gpu_temperature(self, device_id: int):
+        data: dict = self.execute_rocm_cmdline(["-t"], device_id=device_id)
+        temp_data = self.get_first_value_from_dict(data)
+        ret = 0
+        for name, value in temp_data.items():
+            try:
+                value = float(value)
+                ret = max(value, ret)
+            except ValueError:
+                print(f'[-] Failed to convert value "{value}" ({name}) to float')
+        return ret
+
+    def mainloop(self):
+        for it in self.get_device_indices():
+            print("[*] Processing GPU #" + str(it))
+            self.set_gpu_as_manual_perf_level(it)
+            gpu_temp = self.get_gpu_temperature(it)
+            current_sclk_level = self.get_gpu_current_sclk_level(it)
+            print("[*] Current SCLK level:", current_sclk_level)
+            min_sclk_level, max_sclk_level = self.get_gpu_sclk_min_max_levels(it)
+            print("[*] GPU temperature:", gpu_temp)
+            if gpu_temp > self.target_temp:
+                print("[*] Temperature too high. Lowering SCLK level")
+                new_sclk_level = current_sclk_level - 1
+                new_sclk_level = max(min_sclk_level, new_sclk_level)
+            else:
+                print("[*] Temperature within limit. Rising SCLK level")
+                new_sclk_level = current_sclk_level + 1
+                new_sclk_level = min(max_sclk_level, new_sclk_level)
+            print("[*] New SCLK level:", new_sclk_level)
+            self.set_gpu_sclk_level(it, new_sclk_level)
+
+    def main(self):
+        while True:
+            self.mainloop()
+            time.sleep(5)
 
 
 class HardwareStatSustainer:
@@ -590,16 +712,11 @@ class HardwareStatSustainer:
     def has_amd_gpu() -> bool:
         return check_binary_in_path(ROCM_SMI)
 
-    @staticmethod
-    def idle():
-        while True:
-            try:
-                time.sleep(1)
-            except KeyboardInterrupt:
-                print("[*] Exiting because of keyboard interruption")
-                break
-
     def main(self):
         for it in self.sustainers:
-            start_as_daemon_thread(it)
-        self.idle()
+            if it.run_forever:
+                func = it
+            else:
+                func = functools.partial(repeat_task, it)
+            start_as_daemon_thread(func)
+        repeat_task()
