@@ -1,6 +1,6 @@
 <h1 align="center">Sustainer</h1>
 
-<h2><i align="center">You don't have to do this.</i></h2>
+<h2 align="center"><i>You don't have to do this.</i></h2>
 
 <img align="center" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
 
