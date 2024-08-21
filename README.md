@@ -1,4 +1,4 @@
-<center><h1>Sustainer</h1></center>
+<h1 align="center">Sustainer</h1>
 
 <div style="text-align: center;">
     <img style="display: block; margin: 0 auto;" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
