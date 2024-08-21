@@ -2,7 +2,7 @@
 
 <img align="center" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
 
-<i align="center">You don't have to do this.<</i>
+<i align="center">You don't have to do this.</i>
 
 Keep GPU and CPU temperatures within given limit.
 
