@@ -559,8 +559,12 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
 
     @staticmethod
     def parse_number(power_limit_string: str):
-        ret = float(power_limit_string.split(" ")[0])
-        ret = int(ret)
+        try:
+            ret = float(power_limit_string.split(" ")[0])
+            ret = int(ret)
+        except ValueError:
+            print(f"[-] Failed to convert '{power_limit_string}' as number, falling back to nan")
+            ret = float('nan')
         return ret
 
     def get_default_power_limit(self, device_id: int):
