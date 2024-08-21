@@ -1,8 +1,15 @@
 <h1 align="center">Sustainer</h1>
 
+<h2><i align="center">You don't have to do this.</i></h2>
+
 <img align="center" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
 
-<i align="center">You don't have to do this.</i>
+<p align="center">
+<a href="https://github.com/james4ever0/sustainer/blob/master/LICENSE"><img alt="License: WTFPL" src="https://img.shields.io/badge/license-WTFPL-green.svg?style=flat"></a>
+<a href="https://pypi.org/project/sustainer/"><img alt="PyPI" src="https://img.shields.io/pypi/v/sustainer"></a>
+<a href="https://pepy.tech/project/sustainer"><img alt="Downloads" src="https://static.pepy.tech/badge/sustainer"></a>
+<a href="https://github.com/james4ever0/sustain_gpu_temperature"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
+</p>
 
 Keep GPU and CPU temperatures within given limit.
 
