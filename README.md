@@ -1,9 +1,8 @@
 <h1 align="center">Sustainer</h1>
 
-<div style="text-align: center;">
-    <img style="display: block; margin: 0 auto;" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
-    <p style="text-align: center; font-style: italic;">You don't have to do this.</p>
-</div>
+<img align="center" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
+
+<i align="center">You don't have to do this.<</i>
 
 Keep GPU and CPU temperatures within given limit.
 
