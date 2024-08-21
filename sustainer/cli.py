@@ -56,8 +56,8 @@ You are more than welcomed to submit a pull request instead!
 
     error_msg = "An exception has been raised outside of a try/except!!!\n" \
                 f"Type: {exctype}\n" \
-                f"Value: {value}\n" \
-                f"Traceback:\n{traceback_details}{info}"
+                f"Traceback:\n{traceback_details}" \
+                f"Value: {value}{info}"
     print(error_msg)    
 
 def set_excepthook():
