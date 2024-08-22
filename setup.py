@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="sustainer",
-    version="0.0.9",
+    version="0.1.4",
     packages=["sustainer"],
     description="Keep GPU and CPU temperatures within given limit.",
     url="https://github.com/james4ever0/sustain_gpu_temperature",

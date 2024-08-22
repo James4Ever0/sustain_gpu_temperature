@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import os
 import pynvml
 import traceback
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Callable, List, Dict, Any
 import subprocess
 import xmltodict
 import shutil
@@ -69,10 +69,29 @@ def check_binary_in_path(binary_name: str):
         print(f"[+] Binary '{binary_name}' detected")
     return ret
 
+def retrieve_usable_sustainer_from_list(sustainer_list:List["AbstractBaseStatSustainer.__class__"]):
+    namelist = []
+    for it in sustainer_list:
+        name = it.__name__
+        namelist.append(name)
+        try:
+            instance = it()
+            if instance.test():
+                # test passed
+                print('[+] Using sustainer:', name)
+                return instance
+            else:
+                print('[-] Removing unusable sustainer:', name)
+                del instance
+        except:
+            traceback.print_exc()
+            print(f"[-] Failed to create an instance for '{name}'")
+    raise Exception('[-] No usable sustainer found in:', *namelist)
+
 
 class AbstractBaseStatSustainer(ABC):
     hardware_name = "Hardware"
-    required_binaries: list[str] = []
+    required_binaries: List[str] = []
     run_forever: bool
 
     def __init__(self, target_temp=TARGET_TEMP):
@@ -86,6 +105,10 @@ class AbstractBaseStatSustainer(ABC):
 
     @abstractmethod
     def main(self):
+        ...
+
+    @abstractmethod
+    def test(self) -> bool:
         ...
 
 
@@ -103,6 +126,15 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
                 assert self.verify_stats(
                     index
                 ), f"[-] {self.hardware_name} stat limits verification failed"
+    def test(self):
+        ret = False
+        try:
+            self.mainloop()
+            ret = True
+        except:
+            traceback.print_exc()
+            print(f"[-] Test failed for running '{self.__name__}'")
+        return ret
 
     def main(self):
         while True:
@@ -115,7 +147,7 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
                 print("[-] Failed to run current loop")
 
     @abstractmethod
-    def get_device_indices(self) -> list[int]:
+    def get_device_indices(self) -> List[int]:
         ...
 
     @abstractmethod
@@ -127,9 +159,14 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
         ...
 
 
-class CPUStatSustainer(AbstractBaseStatSustainer):
+class CPUBaseStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "CPU"
     run_forever = True
+
+class CPUPowerStatSustainer(CPUBaseStatSustainer):
+    required_binaries = ['sensors', 'cpuinfo', 'cpufreq']
+
+class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
     required_binaries = ["sensors", "cpufreq-info", "cpufreq-set"]
 
     def __init__(self, relax_time: Optional[int] = None, max_freq_ratio=MAX_FREQ_RATIO):
@@ -160,7 +197,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
         return ret
 
     @staticmethod
-    def check_prefix_in_strlist(strlist: list[str], prefix: str):
+    def check_prefix_in_strlist(strlist: List[str], prefix: str):
         ret = False
         for it in strlist:
             if it.startswith(prefix):
@@ -179,7 +216,7 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
 
     @staticmethod
     def filter_by_prefix_and_calculate_max_value_from_readings(
-        readings: dict[str, dict], prefix: str
+        readings: Dict[str, dict], prefix: str
     ):
         ret = 0
         for adaptor_name, sensor in readings.items():
@@ -456,9 +493,15 @@ class CPUStatSustainer(AbstractBaseStatSustainer):
             self.setGovernor(hardware, cur_governor)
             self.setMaxFreq(max_freq, hardware, cores)
 
-
-class NVIDIAGPUStatSustainer(AbstractStatSustainer):
+class NVIDIABaseGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "NVIDIA GPU"
+
+class NVIDIALegacyGPUStatSustainer(NVIDIABaseGPUStatSustainer):
+    run_forever = True
+    def main(self):
+        ...
+
+class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     run_forever = False
 
     def __init__(
@@ -473,6 +516,7 @@ class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
         pynvml.nvmlInit()
         super().main()
         pynvml.nvmlShutdown()
+
 
     @staticmethod
     def get_device_indices():
@@ -522,7 +566,6 @@ class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
 
         return power_limit_set and temp_limit_set and persistent_mode_set
 
-
 class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
     required_binaries = [NVIDIA_SMI]
 
@@ -543,7 +586,7 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         return data
 
     @staticmethod
-    def prepare_nvidia_smi_command(suffix: list[str], device_id: Optional[int] = None):
+    def prepare_nvidia_smi_command(suffix: List[str], device_id: Optional[int] = None):
         cmdlist = [NVIDIA_SMI]
         if device_id is not None:
             cmdlist.extend(["-i", str(device_id)])
@@ -552,7 +595,7 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         return cmdlist
 
     def execute_nvidia_smi_command(
-        self, suffix: list[str], device_id: Optional[int] = None, timeout=EXEC_TIMEOUT
+        self, suffix: List[str], device_id: Optional[int] = None, timeout=EXEC_TIMEOUT
     ):
         cmdlist = self.prepare_nvidia_smi_command(suffix, device_id)
         subprocess.run(cmdlist, timeout=timeout)
@@ -567,10 +610,20 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
             ret = float('nan')
         return ret
 
-    def get_default_power_limit(self, device_id: int):
+    def get_gpu_info_by_id(self, device_id:int) -> dict:
         data = self.get_current_stats()
+        ret = data["gpu"][device_id]
+        return ret
+
+    def get_gpu_power_readings_by_id(self, device_id:int):
+        data = self.get_gpu_info_by_id(device_id)
+        ret = data.get('power_readings', data.get('gpu_power_readings', None))
+        assert ret is not None, '[-] Failed to get GPU power readings'
+        return ret
+
+    def get_default_power_limit(self, device_id: int):
         ret = self.parse_number(
-            data["gpu"][device_id]["gpu_power_readings"]["default_power_limit"]
+            self.get_gpu_power_readings_by_id(device_id)["default_power_limit"]
         )
         return ret
 
@@ -590,15 +643,15 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
             self.execute_nvidia_smi_command(it, device_id=device_id)
 
     def verify_stats(self, device_id: int):
-        data = self.get_current_stats()
-
+        data = self.get_gpu_info_by_id(device_id)
+        power_readings = self.get_gpu_power_readings_by_id(device_id)
         power_limit = self.parse_number(
-            data["gpu"][device_id]["gpu_power_readings"]["current_power_limit"]
-        )
+            power_readings.get("current_power_limit", power_readings.get('power_limit', None)
+        ))
         temp_limit = self.parse_number(
-            data["gpu"][device_id]["temperature"]["gpu_target_temperature"]
+            data["temperature"]["gpu_target_temperature"]
         )
-        persistent_mode = data["gpu"][device_id]["persistence_mode"]
+        persistent_mode = data["persistence_mode"]
 
         power_limit_set = power_limit == self.get_target_power_limit(device_id)
         temp_limit_set = temp_limit == TARGET_TEMP
@@ -614,7 +667,7 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
 
     @staticmethod
     def generate_rocm_cmdline(
-        suffixs: list[str], device_id: Optional[int], export_json: bool
+        suffixs: List[str], device_id: Optional[int], export_json: bool
     ):
         cmdline = ["rocm-smi"]
         if device_id is not None:
@@ -627,15 +680,15 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
 
     def execute_rocm_cmdline(
         self,
-        suffixs: list[str],
+        suffixs: List[str],
         device_id: Optional[int] = None,
         export_json=True,
         timeout=EXEC_TIMEOUT,
-    ):
+    ) -> Any:
         cmdline = self.generate_rocm_cmdline(
             suffixs, device_id=device_id, export_json=export_json
         )
-        output = subprocess.check_output(cmdline, timeout=timeout)
+        output = subprocess.check_output(cmdline, timeout=timeout, encoding=ENCODING)
         if export_json:
             output = json.loads(output)
         # print('[*] Output:')
@@ -715,20 +768,34 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
             time.sleep(5)
 
 
+def get_usable_cpu_sustainer():
+    ret = retrieve_usable_sustainer_from_list([CPUFreqUtilStatSustainer, CPUPowerStatSustainer])
+    return ret
+
+
+def get_usable_nvidia_gpu_sustainer():
+    ret = retrieve_usable_sustainer_from_list([NVSMIGPUStatSustainer, NVMLGPUStatSustainer, NVIDIALegacyGPUStatSustainer])
+    return ret
+
+def get_usable_amd_gpu_sustainer():
+    ret = retrieve_usable_sustainer_from_list([ROCMSMIGPUStatSustainer])
+    return ret
+
+
 class HardwareStatSustainer:
     def __init__(self, cpu=True, gpu=True):
-        self.sustainers: list[AbstractBaseStatSustainer] = []
+        self.sustainers: List[AbstractBaseStatSustainer] = []
         if cpu:
-            self.sustainers.append(CPUStatSustainer())
+            self.sustainers.append(get_usable_cpu_sustainer())
         if gpu:
             self.add_gpu_sustainers()
 
     def add_gpu_sustainers(self):
         # must have cpu, so we check for nvidia gpu and amd gpu
         if self.has_nvidia_gpu():
-            self.sustainers.append(NVSMIGPUStatSustainer())
+            self.sustainers.append(get_usable_nvidia_gpu_sustainer())
         if self.has_amd_gpu():
-            self.sustainers.append(ROCMSMIGPUStatSustainer())
+            self.sustainers.append(get_usable_amd_gpu_sustainer())
 
     @staticmethod
     def has_nvidia_gpu() -> bool:
