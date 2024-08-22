@@ -70,7 +70,10 @@ def check_binary_in_path(binary_name: str):
         print(f"[+] Binary '{binary_name}' detected")
     return ret
 
-def retrieve_usable_sustainer_from_list(sustainer_list:List["AbstractBaseStatSustainer.__class__"]):
+
+def retrieve_usable_sustainer_from_list(
+    sustainer_list: List["AbstractBaseStatSustainer.__class__"],
+):
     namelist = []
     for it in sustainer_list:
         name = it.__name__
@@ -79,15 +82,15 @@ def retrieve_usable_sustainer_from_list(sustainer_list:List["AbstractBaseStatSus
             instance = it()
             if instance.test():
                 # test passed
-                print('[+] Using sustainer:', name)
+                print("[+] Using sustainer:", name)
                 return instance
             else:
-                print('[-] Removing unusable sustainer:', name)
+                print("[-] Removing unusable sustainer:", name)
                 del instance
         except:
             traceback.print_exc()
             print(f"[-] Failed to create an instance for '{name}'")
-    raise Exception('[-] No usable sustainer found in:', *namelist)
+    raise Exception("[-] No usable sustainer found in:", *namelist)
 
 
 class AbstractBaseStatSustainer(ABC):
@@ -127,6 +130,7 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
                 assert self.verify_stats(
                     index
                 ), f"[-] {self.hardware_name} stat limits verification failed"
+
     def test(self):
         ret = False
         try:
@@ -293,7 +297,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
     @staticmethod
     def getTemp(hardware: int):
         if hardware == 0:
-            raise Exception('[-] Sorry, this hardware is not supported')
+            raise Exception("[-] Sorry, this hardware is not supported")
         temp = 0
         if hardware == 6:
             # logging.debug('reading temp..')
@@ -432,12 +436,12 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
 
     def test(self):
         return True
-    
+
     @staticmethod
     def get_cores():
         cores = os.cpu_count()
         if cores is None:
-            logging.warn('Unable to get CPU cores. Using 16 as fallback.')
+            logging.warn("Unable to get CPU cores. Using 16 as fallback.")
             cores = 16
         return cores
 
@@ -503,10 +507,37 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
 
 
 class CPUPowerStatSustainer(CPUFreqUtilStatSustainer):
-    required_binaries = ['sensors', 'cpuinfo', 'cpufreq']
+    required_binaries = ["sensors", "cpupower"]
+    # ref: https://manpages.debian.org/stretch/linux-cpupower/cpupower.1.en.html
+    @staticmethod
+    def write_and_set_as_executable(path:str, content:str):
+        with open(path, 'w+') as f:
+            f.write(content)
+        os.chmod(path, mode=755)
+
+    @staticmethod
+    def build_bash_executable_content(command:str):
+        ret = f"""#!/bin/bash
+{command} $@
+"""
+        return ret
+    
+    def build_and_write_executable(self, path:str, command:str):
+        content = self.build_bash_executable_content(command)
+        self.write_and_set_as_executable(path, content)
+
+    def create_compatibility_layer(self):
+        self.build_and_write_executable("/usr/bin/cpufreq-info", 'cpupower frequency-info')
+        self.build_and_write_executable('/usr/bin/cpufreq-set', 'cpupower frequency-set')
+
+    def __init__(self):
+        super().__init__()
+        self.create_compatibility_layer()
+
 
 class NVIDIABaseGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "NVIDIA GPU"
+
 
 class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     run_forever = False
@@ -516,7 +547,7 @@ class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     ):
         super().__init__(target_temp=target_temp)
         self.max_power_limit_ratio = max_power_limit_ratio
-    
+
     def test(self):
         self.mainloop()
 
@@ -538,7 +569,6 @@ class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
     def test(self):
         with self.nvml_context():
             super().test()
-
 
     @staticmethod
     def get_device_indices():
@@ -588,6 +618,7 @@ class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
 
         return power_limit_set and temp_limit_set and persistent_mode_set
 
+
 class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
     required_binaries = [NVIDIA_SMI]
 
@@ -628,19 +659,21 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
             ret = float(power_limit_string.split(" ")[0])
             ret = int(ret)
         except ValueError:
-            print(f"[-] Failed to convert '{power_limit_string}' as number, falling back to nan")
-            ret = float('nan')
+            print(
+                f"[-] Failed to convert '{power_limit_string}' as number, falling back to nan"
+            )
+            ret = float("nan")
         return ret
 
-    def get_gpu_info_by_id(self, device_id:int) -> dict:
+    def get_gpu_info_by_id(self, device_id: int) -> dict:
         data = self.get_current_stats()
         ret = data["gpu"][device_id]
         return ret
 
-    def get_gpu_power_readings_by_id(self, device_id:int):
+    def get_gpu_power_readings_by_id(self, device_id: int):
         data = self.get_gpu_info_by_id(device_id)
-        ret = data.get('power_readings', data.get('gpu_power_readings', None))
-        assert ret is not None, '[-] Failed to get GPU power readings'
+        ret = data.get("power_readings", data.get("gpu_power_readings", None))
+        assert ret is not None, "[-] Failed to get GPU power readings"
         return ret
 
     def get_default_power_limit(self, device_id: int):
@@ -654,15 +687,15 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         ret = int(MAX_POWER_LIMIT_RATIO * default_power_limit)
         return ret
 
-    def set_persistent_mode(self, device_id:int):
+    def set_persistent_mode(self, device_id: int):
         cmdline = ["-pm", "1"]
         self.execute_nvidia_smi_command(cmdline, device_id=device_id)
-    
-    def set_power_limit(self, device_id:int, power_limit:int):
+
+    def set_power_limit(self, device_id: int, power_limit: int):
         cmdline = ["-pl", str(power_limit)]
         self.execute_nvidia_smi_command(cmdline, device_id=device_id)
-    
-    def set_target_temp(self, device_id:int, target_temp:int):
+
+    def set_target_temp(self, device_id: int, target_temp: int):
         cmdline = ["-gtt", str(target_temp)]
         self.execute_nvidia_smi_command(cmdline, device_id=device_id)
 
@@ -671,87 +704,111 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         self.set_target_temp(device_id, self.target_temp)
         self.set_persistent_mode(device_id)
 
-    def get_current_power_limit(self, device_id:int):
+    def get_current_power_limit(self, device_id: int):
         power_readings = self.get_gpu_power_readings_by_id(device_id)
-        power_limit = power_readings.get("current_power_limit", power_readings.get('power_limit', None))
+        power_limit = power_readings.get(
+            "current_power_limit", power_readings.get("power_limit", None)
+        )
         assert power_limit is not None
         power_limit = self.parse_number(power_limit)
         return power_limit
-    
-    def verify_power_limit(self, device_id: int, target_power_limit:int):
+
+    def verify_power_limit(self, device_id: int, target_power_limit: int):
         power_limit = self.get_current_power_limit(device_id)
         ret = power_limit == target_power_limit
         return ret
 
-    def get_current_target_temp(self, device_id:int):
+    def get_gpu_temperature_info(self, device_id: int):
         data = self.get_gpu_info_by_id(device_id)
-        ret = self.parse_number(
-            data["temperature"]["gpu_target_temperature"]
-        )
+        ret = data["temperature"]
         return ret
-    
-    def verify_target_temp(self, device_id:int, target_temp:int):
+
+    def get_current_target_temp(self, device_id: int):
+        temp_info = self.get_gpu_temperature_info(device_id)
+        ret = self.parse_number(temp_info["gpu_target_temperature"])
+        return ret
+
+    def verify_target_temp(self, device_id: int, target_temp: int):
         current_target_temp = self.get_current_target_temp(device_id)
         ret = current_target_temp == target_temp
         return ret
 
-    def get_current_persistent_mode(self, device_id:int):
+    def get_current_persistent_mode(self, device_id: int):
         data = self.get_gpu_info_by_id(device_id)
         persistent_mode = data["persistence_mode"]
         return persistent_mode
-    
-    def verify_persistent_mode(self, device_id:int):
+
+    def verify_persistent_mode(self, device_id: int):
         persistent_mode = self.get_current_persistent_mode(device_id)
         ret = persistent_mode == "Enabled"
         return ret
 
     def verify_stats(self, device_id: int):
-        power_limit_set = self.verify_power_limit(device_id, self.get_target_power_limit(device_id))
+        power_limit_set = self.verify_power_limit(
+            device_id, self.get_target_power_limit(device_id)
+        )
         temp_limit_set = self.verify_target_temp(device_id, self.target_temp)
         persistent_mode_set = self.verify_persistent_mode(device_id)
 
         return power_limit_set and temp_limit_set and persistent_mode_set
+
 
 # limit power consumption only
 class NVIDIALegacyGPUStatSustainer(NVSMIGPUStatSustainer):
     run_forever = True
     power_limit_step_ratio = 0.2
 
-    def main(self):
-        ...
+    def get_gpu_temperature(self, device_id: int):
+        temp_info = self.get_gpu_temperature_info(device_id)
+        ret = self.parse_number(temp_info["gpu_temp"])
+        print("[*] Current GPU temperature:", ret)
+        return ret
+
     def mainloop(self):
-        ...
-    def get_min_power_limit(self, device_id:int):
+        for index in self.get_device_indices():
+            gpu_temp = self.get_gpu_temperature(index)
+            increase = gpu_temp < self.target_temp
+            self.set_new_power_limit_by_direction(index, increase)
+
+    def get_min_power_limit(self, device_id: int):
         ret = self.parse_number(
-            self.get_gpu_power_readings_by_id(device_id)['min_power_limit']
+            self.get_gpu_power_readings_by_id(device_id)["min_power_limit"]
         )
         return ret
 
-    def get_min_max_power_limits(self, device_id:int):
+    def get_min_max_power_limits(self, device_id: int):
         min_power_limit = self.get_min_power_limit(device_id)
         max_power_limit = self.get_default_power_limit(device_id)
         return min_power_limit, max_power_limit
-    
-    def set_new_max_power(self, device_id:int, new_max_power:int):
-        cmdlist = ['-pl', str(new_max_power)]
+
+    def set_new_max_power(self, device_id: int, new_max_power: int):
+        cmdlist = ["-pl", str(new_max_power)]
         self.execute_nvidia_smi_command(cmdlist, device_id=device_id)
 
-    def get_power_limit_step(self, device_id:int):
+    def get_power_limit_step(self, device_id: int):
         max_power = self.get_default_power_limit(device_id)
         ret = max_power * self.power_limit_step_ratio
         ret = int(ret)
         return ret
 
-    def get_new_power_limit(self, device_id:int, increase:bool):
+    def get_new_power_limit(self, device_id: int, increase: bool):
         current_power_limit = self.get_current_power_limit(device_id)
         min_power, max_power = self.get_min_max_power_limits(device_id)
         power_limit_step = self.get_power_limit_step(device_id)
         if increase:
+            print("[*] Increasing power limit")
             ret = min(max_power, current_power_limit + power_limit_step)
         else:
+            print("[*] Decreasing power limit")
             ret = max(min_power, current_power_limit - power_limit_step)
         ret = int(ret)
+        print("[*] New power limit:", ret)
         return ret
+
+    def set_new_power_limit_by_direction(self, device_id: int, increase: bool):
+        new_power_limit = self.get_new_power_limit(device_id, increase)
+        self.set_power_limit(device_id, new_power_limit)
+
 
 class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "AMD GPU"
@@ -813,8 +870,10 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
         ret = list(data.values())[0]
         return ret
 
-    def set_gpu_fan_percent(self, device_id:int, fan_percent:int):
-        self.execute_rocm_cmdline([ "--setfan" , f"{fan_percent}%"], device_id=device_id, export_json=False)
+    def set_gpu_fan_percent(self, device_id: int, fan_percent: int):
+        self.execute_rocm_cmdline(
+            ["--setfan", f"{fan_percent}%"], device_id=device_id, export_json=False
+        )
 
     def set_gpu_sclk_level(self, device_id: int, sclk_level: int):
         self.execute_rocm_cmdline(
@@ -865,12 +924,18 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
 
 
 def get_usable_cpu_sustainer():
-    ret = retrieve_usable_sustainer_from_list([CPUFreqUtilStatSustainer, CPUPowerStatSustainer])
+    ret = retrieve_usable_sustainer_from_list(
+        [CPUFreqUtilStatSustainer, CPUPowerStatSustainer]
+    )
     return ret
 
+
 def get_usable_nvidia_gpu_sustainer():
-    ret = retrieve_usable_sustainer_from_list([NVSMIGPUStatSustainer, NVMLGPUStatSustainer, NVIDIALegacyGPUStatSustainer])
+    ret = retrieve_usable_sustainer_from_list(
+        [NVSMIGPUStatSustainer, NVMLGPUStatSustainer, NVIDIALegacyGPUStatSustainer]
+    )
     return ret
+
 
 def get_usable_amd_gpu_sustainer():
     ret = retrieve_usable_sustainer_from_list([ROCMSMIGPUStatSustainer])

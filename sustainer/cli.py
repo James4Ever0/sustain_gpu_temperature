@@ -3,11 +3,12 @@ from .lib import HardwareStatSustainer
 import sys
 import traceback
 
+
 def parse_args():
     # Create the parser
     parser = argparse.ArgumentParser(
         description="Keep GPU and CPU temperatures within given limit.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     # Add arguments
@@ -44,6 +45,7 @@ def call_sustainer(target: str):
         kwargs["cpu"] = False
     HardwareStatSustainer(**kwargs).main()
 
+
 def github_info_excepthook(exctype, value, tb):
     info = """
 Encountered issues? Stay in touch with us!
@@ -52,16 +54,20 @@ Submit a new issue: https://github.com/james4ever0/sustain_gpu_temperature/issue
 
 You are more than welcomed to submit a pull request instead!
 """
-    traceback_details = '\n'.join(traceback.extract_tb(tb).format())
+    traceback_details = "\n".join(traceback.extract_tb(tb).format())
 
-    error_msg = "An exception has been raised outside of a try/except!!!\n" \
-                f"Type: {exctype}\n" \
-                f"Traceback:\n{traceback_details}\n" \
-                f"Value: {value}\n{info}"
-    print(error_msg)    
+    error_msg = (
+        "An exception has been raised outside of a try/except!!!\n"
+        f"Type: {exctype}\n"
+        f"Traceback:\n{traceback_details}\n"
+        f"Value: {value}\n{info}"
+    )
+    print(error_msg)
+
 
 def set_excepthook():
     sys.excepthook = github_info_excepthook
+
 
 def main():
     set_excepthook()
