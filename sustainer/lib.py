@@ -163,8 +163,6 @@ class CPUBaseStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "CPU"
     run_forever = True
 
-class CPUPowerStatSustainer(CPUBaseStatSustainer):
-    required_binaries = ['sensors', 'cpuinfo', 'cpufreq']
 
 class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
     required_binaries = ["sensors", "cpufreq-info", "cpufreq-set"]
@@ -493,13 +491,12 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
             self.setGovernor(hardware, cur_governor)
             self.setMaxFreq(max_freq, hardware, cores)
 
+
+class CPUPowerStatSustainer(CPUFreqUtilStatSustainer):
+    required_binaries = ['sensors', 'cpuinfo', 'cpufreq']
+
 class NVIDIABaseGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "NVIDIA GPU"
-
-class NVIDIALegacyGPUStatSustainer(NVIDIABaseGPUStatSustainer):
-    run_forever = True
-    def main(self):
-        ...
 
 class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     run_forever = False
@@ -659,6 +656,10 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
 
         return power_limit_set and temp_limit_set and persistent_mode_set
 
+class NVIDIALegacyGPUStatSustainer(NVSMIGPUStatSustainer):
+    run_forever = True
+    def main(self):
+        ...
 
 class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "AMD GPU"
