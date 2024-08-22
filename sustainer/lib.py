@@ -7,6 +7,7 @@ import subprocess
 import xmltodict
 import shutil
 import functools
+import contextlib
 
 import sys, time
 import logging, signal
@@ -174,6 +175,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         self.relax_time, self.crit_temp = self.getArguments(
             relax_time, self.target_temp
         )
+        self.hardware = self.hardwareCheck()
 
     @staticmethod
     def logger_init():
@@ -229,7 +231,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
                                 ret = max(ret, sensor_value_reading)
         return ret
 
-    def get_cpu_temperature(self, hardware: int):
+    def get_cpu_temperature(self):
         readings = self.get_temperature_readings()
         ret = None
         platform_id = self.detect_platform_from_readings(readings)
@@ -243,7 +245,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
                 * 1000
             )
         if int(ret) == 0:
-            ret = self.getTemp(hardware)
+            ret = self.getTemp(self.hardware)
         return ret
 
     @staticmethod
@@ -290,6 +292,8 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
     # depending on the kernel and hardware config, read the temperature
     @staticmethod
     def getTemp(hardware: int):
+        if hardware == 0:
+            raise Exception('[-] Sorry, this hardware is not supported')
         temp = 0
         if hardware == 6:
             # logging.debug('reading temp..')
@@ -426,6 +430,17 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         except ValueError:
             print("[-] Failed to set signal handler for CPUStatSustainer")
 
+    def test(self):
+        return True
+    
+    @staticmethod
+    def get_cores():
+        cores = os.cpu_count()
+        if cores is None:
+            logging.warn('Unable to get CPU cores. Using 16 as fallback.')
+            cores = 16
+        return cores
+
     def main(self):
         # global version
         hardware = 0
@@ -436,14 +451,9 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         govs = ()
         relax_time, crit_temp = self.relax_time, self.crit_temp
         logging.debug(f"critic_temp: {crit_temp}, relaxtime: {relax_time}")
-        cores = os.cpu_count()
-        if cores is None:
-            cores = 16
-        hardware = self.hardwareCheck()
+        cores = self.get_cores()
+        hardware = self.hardware
         logging.debug(f"Detected hardware/kernel type is {hardware}")
-        if hardware == 0:
-            logging.warning("Sorry, this hardware is not supported")
-            sys.exit()
         freq = self.getMinMaxFrequencies(hardware)
         logging.debug(f"min max gov: {freq}")
         min_freq = int(freq[0])
@@ -464,7 +474,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         try:
             while True:
                 # cur_temp = getTemp(hardware)
-                cur_temp = self.get_cpu_temperature(hardware)
+                cur_temp = self.get_cpu_temperature()
                 logging.info(f"Current temp is {int(cur_temp/1000)}")
                 if cur_temp is None:
                     logging.warning("Error: Current temp is None?!")
@@ -506,13 +516,28 @@ class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     ):
         super().__init__(target_temp=target_temp)
         self.max_power_limit_ratio = max_power_limit_ratio
+    
+    def test(self):
+        self.mainloop()
 
 
 class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
+    @staticmethod
+    @contextlib.contextmanager
+    def nvml_context():
+        try:
+            pynvml.nvmlInit()
+            yield
+        finally:
+            pynvml.nvmlShutdown()
+
     def main(self):
-        pynvml.nvmlInit()
-        super().main()
-        pynvml.nvmlShutdown()
+        with self.nvml_context():
+            super().main()
+
+    def test(self):
+        with self.nvml_context():
+            super().test()
 
 
     @staticmethod
@@ -629,37 +654,104 @@ class NVSMIGPUStatSustainer(NVIDIAGPUStatSustainer):
         ret = int(MAX_POWER_LIMIT_RATIO * default_power_limit)
         return ret
 
-    def set_stats(self, device_id: int):
-        power_limit = self.get_target_power_limit(device_id)
-        suffix_list = [
-            ["-pl", str(power_limit)],
-            ["-gtt", str(TARGET_TEMP)],
-            ["-pm", "1"],
-        ]
-        for it in suffix_list:
-            self.execute_nvidia_smi_command(it, device_id=device_id)
+    def set_persistent_mode(self, device_id:int):
+        cmdline = ["-pm", "1"]
+        self.execute_nvidia_smi_command(cmdline, device_id=device_id)
+    
+    def set_power_limit(self, device_id:int, power_limit:int):
+        cmdline = ["-pl", str(power_limit)]
+        self.execute_nvidia_smi_command(cmdline, device_id=device_id)
+    
+    def set_target_temp(self, device_id:int, target_temp:int):
+        cmdline = ["-gtt", str(target_temp)]
+        self.execute_nvidia_smi_command(cmdline, device_id=device_id)
 
-    def verify_stats(self, device_id: int):
-        data = self.get_gpu_info_by_id(device_id)
+    def set_stats(self, device_id: int):
+        self.set_power_limit(device_id, self.get_target_power_limit(device_id))
+        self.set_target_temp(device_id, self.target_temp)
+        self.set_persistent_mode(device_id)
+
+    def get_current_power_limit(self, device_id:int):
         power_readings = self.get_gpu_power_readings_by_id(device_id)
-        power_limit = self.parse_number(
-            power_readings.get("current_power_limit", power_readings.get('power_limit', None)
-        ))
-        temp_limit = self.parse_number(
+        power_limit = power_readings.get("current_power_limit", power_readings.get('power_limit', None))
+        assert power_limit is not None
+        power_limit = self.parse_number(power_limit)
+        return power_limit
+    
+    def verify_power_limit(self, device_id: int, target_power_limit:int):
+        power_limit = self.get_current_power_limit(device_id)
+        ret = power_limit == target_power_limit
+        return ret
+
+    def get_current_target_temp(self, device_id:int):
+        data = self.get_gpu_info_by_id(device_id)
+        ret = self.parse_number(
             data["temperature"]["gpu_target_temperature"]
         )
-        persistent_mode = data["persistence_mode"]
+        return ret
+    
+    def verify_target_temp(self, device_id:int, target_temp:int):
+        current_target_temp = self.get_current_target_temp(device_id)
+        ret = current_target_temp == target_temp
+        return ret
 
-        power_limit_set = power_limit == self.get_target_power_limit(device_id)
-        temp_limit_set = temp_limit == TARGET_TEMP
-        persistent_mode_set = persistent_mode == "Enabled"
+    def get_current_persistent_mode(self, device_id:int):
+        data = self.get_gpu_info_by_id(device_id)
+        persistent_mode = data["persistence_mode"]
+        return persistent_mode
+    
+    def verify_persistent_mode(self, device_id:int):
+        persistent_mode = self.get_current_persistent_mode(device_id)
+        ret = persistent_mode == "Enabled"
+        return ret
+
+    def verify_stats(self, device_id: int):
+        power_limit_set = self.verify_power_limit(device_id, self.get_target_power_limit(device_id))
+        temp_limit_set = self.verify_target_temp(device_id, self.target_temp)
+        persistent_mode_set = self.verify_persistent_mode(device_id)
 
         return power_limit_set and temp_limit_set and persistent_mode_set
 
+# limit power consumption only
 class NVIDIALegacyGPUStatSustainer(NVSMIGPUStatSustainer):
     run_forever = True
+    power_limit_step_ratio = 0.2
+
     def main(self):
         ...
+    def mainloop(self):
+        ...
+    def get_min_power_limit(self, device_id:int):
+        ret = self.parse_number(
+            self.get_gpu_power_readings_by_id(device_id)['min_power_limit']
+        )
+        return ret
+
+    def get_min_max_power_limits(self, device_id:int):
+        min_power_limit = self.get_min_power_limit(device_id)
+        max_power_limit = self.get_default_power_limit(device_id)
+        return min_power_limit, max_power_limit
+    
+    def set_new_max_power(self, device_id:int, new_max_power:int):
+        cmdlist = ['-pl', str(new_max_power)]
+        self.execute_nvidia_smi_command(cmdlist, device_id=device_id)
+
+    def get_power_limit_step(self, device_id:int):
+        max_power = self.get_default_power_limit(device_id)
+        ret = max_power * self.power_limit_step_ratio
+        ret = int(ret)
+        return ret
+
+    def get_new_power_limit(self, device_id:int, increase:bool):
+        current_power_limit = self.get_current_power_limit(device_id)
+        min_power, max_power = self.get_min_max_power_limits(device_id)
+        power_limit_step = self.get_power_limit_step(device_id)
+        if increase:
+            ret = min(max_power, current_power_limit + power_limit_step)
+        else:
+            ret = max(min_power, current_power_limit - power_limit_step)
+        ret = int(ret)
+        return ret
 
 class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
     hardware_name = "AMD GPU"
@@ -721,6 +813,9 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
         ret = list(data.values())[0]
         return ret
 
+    def set_gpu_fan_percent(self, device_id:int, fan_percent:int):
+        self.execute_rocm_cmdline([ "--setfan" , f"{fan_percent}%"], device_id=device_id, export_json=False)
+
     def set_gpu_sclk_level(self, device_id: int, sclk_level: int):
         self.execute_rocm_cmdline(
             ["--setsclk", str(sclk_level)], device_id=device_id, export_json=False
@@ -772,7 +867,6 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
 def get_usable_cpu_sustainer():
     ret = retrieve_usable_sustainer_from_list([CPUFreqUtilStatSustainer, CPUPowerStatSustainer])
     return ret
-
 
 def get_usable_nvidia_gpu_sustainer():
     ret = retrieve_usable_sustainer_from_list([NVSMIGPUStatSustainer, NVMLGPUStatSustainer, NVIDIALegacyGPUStatSustainer])
