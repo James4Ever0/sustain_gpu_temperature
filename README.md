@@ -2,7 +2,8 @@
 
 <h2 align="center"><i>Cause it doesn't have to be like this.</i></h2>
 
-<img align="center" src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
+<p align="center"><img src="https://github.com/james4ever0/sustain_gpu_temperature/blob/master/assets/repair_gpu.jpg?raw=true" alt="Need an engineer license?">
+</p>
 
 <p align="center">
 <a href="https://github.com/james4ever0/sustainer/blob/master/LICENSE"><img alt="License: WTFPL" src="https://img.shields.io/badge/license-WTFPL-green.svg?style=flat"></a>
