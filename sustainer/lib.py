@@ -115,8 +115,21 @@ class AbstractBaseStatSustainer(ABC):
     def test(self) -> bool:
         ...
 
+class AbstractTestStatSustainer(AbstractBaseStatSustainer):
+    @abstractmethod
+    def mainloop(self):...
+    def test(self):
+        ret = False
+        try:
+            self.mainloop()
+            ret = True
+        except:
+            traceback.print_exc()
+            print(f"[-] Test failed for running '{self.__name__}'")
+        return ret
 
-class AbstractStatSustainer(AbstractBaseStatSustainer):
+
+class AbstractStatSustainer(AbstractTestStatSustainer):
     def mainloop(self):
         for index in self.get_device_indices():
             all_set = self.verify_stats(index)
@@ -131,15 +144,6 @@ class AbstractStatSustainer(AbstractBaseStatSustainer):
                     index
                 ), f"[-] {self.hardware_name} stat limits verification failed"
 
-    def test(self):
-        ret = False
-        try:
-            self.mainloop()
-            ret = True
-        except:
-            traceback.print_exc()
-            print(f"[-] Test failed for running '{self.__name__}'")
-        return ret
 
     def main(self):
         while True:
@@ -535,11 +539,11 @@ class CPUPowerStatSustainer(CPUFreqUtilStatSustainer):
         self.create_compatibility_layer()
 
 
-class NVIDIABaseGPUStatSustainer(AbstractBaseStatSustainer):
+class NVIDIABaseGPUStatSustainer(AbstractStatSustainer):
     hardware_name = "NVIDIA GPU"
 
 
-class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
+class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer):
     run_forever = False
 
     def __init__(
@@ -547,10 +551,6 @@ class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer, AbstractStatSustainer):
     ):
         super().__init__(target_temp=target_temp)
         self.max_power_limit_ratio = max_power_limit_ratio
-
-    def test(self):
-        self.mainloop()
-
 
 class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
     @staticmethod
@@ -568,7 +568,7 @@ class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
 
     def test(self):
         with self.nvml_context():
-            super().test()
+            return super().test()
 
     @staticmethod
     def get_device_indices():
@@ -810,7 +810,7 @@ class NVIDIALegacyGPUStatSustainer(NVSMIGPUStatSustainer):
         self.set_power_limit(device_id, new_power_limit)
 
 
-class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
+class ROCMSMIGPUStatSustainer(AbstractTestStatSustainer):
     hardware_name = "AMD GPU"
     run_forever = True
     required_binaries = ["rocm-smi"]
@@ -921,6 +921,7 @@ class ROCMSMIGPUStatSustainer(AbstractBaseStatSustainer):
         while True:
             self.mainloop()
             time.sleep(5)
+
 
 
 def get_usable_cpu_sustainer():
