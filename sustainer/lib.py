@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import func_timeout
 import os
 import pynvml
 import traceback
@@ -58,6 +59,7 @@ MAX_FREQ_RATIO = get_value_from_environ_with_fallback("MAX_FREQ_RATIO", 0.8)
 NVIDIA_SMI = "nvidia-smi"
 ENCODING = "utf-8"
 EXEC_TIMEOUT = 5
+TEST_TIMEOUT = 5
 
 ROCM_SMI = "rocm-smi"
 
@@ -97,6 +99,7 @@ class AbstractBaseStatSustainer(ABC):
     hardware_name = "Hardware"
     required_binaries: List[str] = []
     run_forever: bool
+    test_timeout = TEST_TIMEOUT
 
     def __init__(self, target_temp=TARGET_TEMP):
         assert is_root(), "You must be root to execute this script"
@@ -111,13 +114,25 @@ class AbstractBaseStatSustainer(ABC):
     def main(self):
         ...
 
-    @abstractmethod
-    def test(self) -> bool:
-        ...
+    def test(self):
+        print(f"[*] Running test for {self.__class__.__name__}")
+        ret = False
+        try:
+            func_timeout.func_timeout(self.test_timeout, self.main)
+        except func_timeout.FunctionTimedOut:
+            print("[+] Test passed")
+            ret = True
+        except:
+            traceback.print_exc()
+            print("[-] Test failed")
+        return ret
+
 
 class AbstractTestStatSustainer(AbstractBaseStatSustainer):
     @abstractmethod
-    def mainloop(self):...
+    def mainloop(self):
+        ...
+
     def test(self):
         ret = False
         try:
@@ -125,7 +140,7 @@ class AbstractTestStatSustainer(AbstractBaseStatSustainer):
             ret = True
         except:
             traceback.print_exc()
-            print(f"[-] Test failed for running '{self.__name__}'")
+            print(f"[-] Test failed for running '{self.__class__.__name__}'")
         return ret
 
 
@@ -143,7 +158,6 @@ class AbstractStatSustainer(AbstractTestStatSustainer):
                 assert self.verify_stats(
                     index
                 ), f"[-] {self.hardware_name} stat limits verification failed"
-
 
     def main(self):
         while True:
@@ -184,6 +198,7 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
             relax_time, self.target_temp
         )
         self.hardware = self.hardwareCheck()
+        self.skip_set_to_normal = False
 
     @staticmethod
     def logger_init():
@@ -356,7 +371,25 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         return int(temp)
 
     @staticmethod
-    def getMinMaxFrequencies(hardware: int):
+    def get_shell_output(command: str, strip: bool = True):
+        proc = subprocess.run(command, shell=True, stdout=subprocess.PIPE)
+        assert (
+            proc.returncode == 0
+        ), f"Failed to execute command with exit code {proc.returncode}: '{command}'"
+        ret = proc.stdout.decode(ENCODING)
+        if strip:
+            ret = ret.strip()
+        return ret
+
+    def get_cpu_freq_policy_output(self):
+        ret = self.get_shell_output("cpufreq-info -p")
+        return ret
+
+    def get_cpu_freq_hwlimit_output(self):
+        ret = self.get_shell_output("cpufreq-info -l")
+        return ret
+
+    def getMinMaxFrequencies(self, hardware: int):
         if hardware == 0:
             # with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq", 'r') as mem1:
             #     min_freq = mem1.read().strip()
@@ -365,45 +398,27 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
             # return (min_freq, max_freq, '')
             raise Exception("Unable to get CPU frequency for unknown hardware")
         else:
-            freq = subprocess.run("cpufreq-info -p", shell=True, stdout=subprocess.PIPE)
-            hwfreq = subprocess.run(
-                "cpufreq-info -l", shell=True, stdout=subprocess.PIPE
+            hwfreq_out = self.get_cpu_freq_hwlimit_output()
+            freq_out = self.get_cpu_freq_policy_output()
+            return tuple(
+                [
+                    *hwfreq_out.split(" "),
+                    freq_out.lower().split(" ")[-1],
+                ]
             )
-            assert hwfreq.returncode == 0, "failed to get hardware frequency limit"
-            if freq.returncode != 0:
-                logging.warning(
-                    "cpufreq-info gives error, cpufrequtils package installed?"
-                )
-                return (0, 0, 0)
-            else:
-                return tuple(
-                    [
-                        *hwfreq.stdout.decode("utf-8").strip().split(" "),
-                        freq.stdout.decode("utf-8").strip().lower().split(" ")[-1],
-                    ]
-                )
 
-    @staticmethod
-    def setMaxFreq(frequency: int, hardware: int, cores: int):
+    def setMaxFreqPerCore(self, frequency: int, core_index: int):
+        self.get_shell_output(f"cpufreq-set -c {core_index} --max {frequency}")
+
+    def setMaxFreq(self, frequency: int, hardware: int, cores: int):
         if hardware != 0:
             logging.info(f"Set max frequency to {int(frequency/1000)} MHz")
             for x in range(cores):
                 logging.debug(f"Setting core {x} to {frequency} KHz")
-                if (
-                    subprocess.run(
-                        f"cpufreq-set -c {x} --max {frequency}", shell=True
-                    ).returncode
-                    != 0
-                ):
-                    logging.warning(
-                        "cpufreq-set gives error, cpufrequtils package installed?"
-                    )
-                    break
+                self.setMaxFreqPerCore(frequency, x)
 
-    @staticmethod
-    def setGovernor(hardware: int, governor: Union[str, int]):
-        if subprocess.run(f"cpufreq-set -g {governor}", shell=True).returncode != 0:
-            logging.warning("cpufreq-set gives error, cpufrequtils package installed?")
+    def setGovernor(self, hardware: int, governor: Union[str, int]):
+        self.get_shell_output(f"cpufreq-set -g {governor}")
 
     @staticmethod
     def getCovernors(hardware: int):
@@ -437,9 +452,6 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
             signal.signal(signal.SIGTERM, self.signal_term_handler)
         except ValueError:
             print("[-] Failed to set signal handler for CPUStatSustainer")
-
-    def test(self):
-        return True
 
     @staticmethod
     def get_cores():
@@ -505,34 +517,89 @@ class CPUFreqUtilStatSustainer(CPUBaseStatSustainer):
         except KeyboardInterrupt:
             logging.warning("Terminating")
         finally:
-            logging.warning("Setting max cpu and governor back to normal.")
-            self.setGovernor(hardware, cur_governor)
-            self.setMaxFreq(max_freq, hardware, cores)
+            self.set_to_normal()
+
+    def set_to_normal(self):
+        if self.skip_set_to_normal:
+            return
+        logging.warning("Setting max cpu and governor back to normal.")
+        self.setGovernor(hardware, cur_governor)
+        self.setMaxFreq(max_freq, hardware, cores)
 
 
 class CPUPowerStatSustainer(CPUFreqUtilStatSustainer):
     required_binaries = ["sensors", "cpupower"]
     # ref: https://manpages.debian.org/stretch/linux-cpupower/cpupower.1.en.html
+    def getMinMaxFrequencies(self, hardware):
+        governor = self.getGovernor()
+        minfreq, maxfreq = self.getMinMaxHwFreq()
+        return minfreq, maxfreq, governor
+
+    def getMinMaxHwFreq(self):
+        hwfreq_out = self.get_cpu_freq_hwlimit_output()
+        lastline = hwfreq_out.splitlines()[-1].strip()
+        ret = lastline.split()
+        return ret
+
+    def setMaxFreqPerCore(self, max_freq: int, core_index: int):
+        self.get_shell_output(
+            f"cpupower -c {core_index} frequency-set --max {max_freq}"
+        )
+
+    def getGovernor(self):
+        policy_out = self.get_cpu_freq_policy_output()
+        lines = policy_out.splitlines()
+        ret = None
+        for it in lines:
+            if "governor" in it:
+                ret = it.split('"')[1]
+                break
+        return ret
+
     @staticmethod
-    def write_and_set_as_executable(path:str, content:str):
-        with open(path, 'w+') as f:
+    def write_and_set_as_executable(path: str, content: str):
+        with open(path, "w+") as f:
             f.write(content)
         os.chmod(path, mode=755)
 
     @staticmethod
-    def build_bash_executable_content(command:str):
+    def build_bash_executable_content(command: str):
         ret = f"""#!/bin/bash
 {command} $@
 """
         return ret
-    
-    def build_and_write_executable(self, path:str, command:str):
+
+    def build_and_write_executable(self, path: str, command: str):
         content = self.build_bash_executable_content(command)
         self.write_and_set_as_executable(path, content)
 
     def create_compatibility_layer(self):
-        self.build_and_write_executable("/usr/bin/cpufreq-info", 'cpupower frequency-info')
-        self.build_and_write_executable('/usr/bin/cpufreq-set', 'cpupower frequency-set')
+        self.build_and_write_executable(
+            "/usr/bin/cpufreq-info", "cpupower frequency-info"
+        )
+        self.build_and_write_executable(
+            "/usr/bin/cpufreq-set", "cpupower frequency-set"
+        )
+
+    def cleanup_compatibility_layer(self):
+        print("[*] Cleaning compatibility layer")
+        filepaths = ["/usr/bin/cpufreq-info", "/usr/bin/cpufreq-set"]
+        for it in filepaths:
+            self.remove_if_exists(it)
+
+    @staticmethod
+    def remove_if_exists(path: str):
+        if os.path.isfile(path):
+            print("[*] Removing:", path)
+            os.remove(path)
+
+    def main(self):
+        try:
+            super().main()
+        finally:
+            self.set_to_normal()
+            self.cleanup_compatibility_layer()
+            self.skip_set_to_normal = True
 
     def __init__(self):
         super().__init__()
@@ -551,6 +618,7 @@ class NVIDIAGPUStatSustainer(NVIDIABaseGPUStatSustainer):
     ):
         super().__init__(target_temp=target_temp)
         self.max_power_limit_ratio = max_power_limit_ratio
+
 
 class NVMLGPUStatSustainer(NVIDIAGPUStatSustainer):
     @staticmethod
@@ -921,7 +989,6 @@ class ROCMSMIGPUStatSustainer(AbstractTestStatSustainer):
         while True:
             self.mainloop()
             time.sleep(5)
-
 
 
 def get_usable_cpu_sustainer():
